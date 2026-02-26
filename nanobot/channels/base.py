@@ -52,10 +52,29 @@ class BaseChannel(ABC):
     async def send(self, msg: OutboundMessage) -> None:
         """
         Send a message through this channel.
-        
+
         Args:
             msg: The message to send.
         """
+        pass
+
+    async def set_message_reaction(
+        self,
+        chat_id: str,
+        message_id: int,
+        emoji: str = "👍",
+        is_big: bool = False,
+    ) -> None:
+        """
+        Set a reaction on a message (if supported by the channel).
+
+        Args:
+            chat_id: Chat ID where the message is located
+            message_id: ID of the message to react to
+            emoji: Emoji to use for the reaction (default: 👍)
+            is_big: If True, show a bigger animation (default: False)
+        """
+        # Default implementation does nothing - channels can override
         pass
     
     def is_allowed(self, sender_id: str) -> bool:

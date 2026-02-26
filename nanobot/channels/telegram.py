@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import re
 from loguru import logger
-from telegram import BotCommand, Update, ReplyParameters
+from telegram import BotCommand, Update, ReplyParameters, ReactionTypeEmoji
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.request import HTTPXRequest
 
@@ -167,6 +168,9 @@ class TelegramChannel(BaseChannel):
         BotCommand("stop", "Stop the current task"),
         BotCommand("help", "Show available commands"),
     ]
+
+    # Emoji reactions for user messages
+    REACTION_EMOJIS = ["❤", "👍", "🔥", "🤩", "👌", "👀", "🫡", "⚡"]
     
     def __init__(
         self,
@@ -299,7 +303,7 @@ class TelegramChannel(BaseChannel):
                 param = "photo" if media_type == "photo" else media_type if media_type in ("voice", "audio") else "document"
                 with open(media_path, 'rb') as f:
                     await sender(
-                        chat_id=chat_id, 
+                        chat_id=chat_id,
                         **{param: f},
                         reply_parameters=reply_params
                     )
@@ -318,8 +322,8 @@ class TelegramChannel(BaseChannel):
                 try:
                     html = _markdown_to_telegram_html(chunk)
                     await self._app.bot.send_message(
-                        chat_id=chat_id, 
-                        text=html, 
+                        chat_id=chat_id,
+                        text=html,
                         parse_mode="HTML",
                         reply_parameters=reply_params
                     )
@@ -327,12 +331,51 @@ class TelegramChannel(BaseChannel):
                     logger.warning("HTML parse failed, falling back to plain text: {}", e)
                     try:
                         await self._app.bot.send_message(
-                            chat_id=chat_id, 
+                            chat_id=chat_id,
                             text=chunk,
                             reply_parameters=reply_params
                         )
                     except Exception as e2:
                         logger.error("Error sending Telegram message: {}", e2)
+
+    async def set_message_reaction(
+        self,
+        chat_id: str,
+        message_id: int,
+        emoji: str = "👍",
+        is_big: bool = False,
+    ) -> None:
+        """
+        Set a reaction on a message.
+
+        Args:
+            chat_id: Chat ID where the message is located
+            message_id: ID of the message to react to
+            emoji: Emoji to use for the reaction (default: 👍)
+            is_big: If True, show a bigger animation (default: False)
+
+        Supported emojis: 👍, 👎, ❤️, 🔥, 🥰, 👏, 😁, 🤔, 🤯, 😱, 🤬, 😢, 🎉, 🤩, 🤮, 💩, 🙏, 👌, 🕊️, 🤡, 🤥, 😘, 🥱, 🥴, 😍, 🤓, 😴, 🤗, 🤬, 😈, 👻, 👀, 🤝, 🫡, 🎅, 🎄, ☃️, 💅, 🤪, 🗿, 🆒, 💘, 🙉, 🦄, 😭, 💯, 🤯, 🍌, 🏆, 💔, 🤨, 🐓, 🍾, 💋, 🖕, 😇, 😯, 🙁, 😊, 🥺, 🤗, 💃, 🕺, 🤘, 🤙, 👆, 👇, 👈, 👉, 🙌, 🙋, 🙍, 🙎, 🙇, 🤦, 🤷, 💁, 💂, 💆, 💇, 🧏, 🙅, 🙆, 🙋, 🙍, 🙎, 🙇, 🤦, 🤷, 💁, 💂, 💆, 💇, 🧏
+        """
+        if not self._app:
+            logger.warning("Telegram bot not running")
+            return
+
+        try:
+            chat_id_int = int(chat_id)
+        except ValueError:
+            logger.error("Invalid chat_id: {}", chat_id)
+            return
+
+        try:
+            await self._app.bot.set_message_reaction(
+                chat_id=chat_id_int,
+                message_id=message_id,
+                reaction=[ReactionTypeEmoji(emoji=emoji)],
+                is_big=is_big,
+            )
+            logger.debug("Set reaction {} on message {} in chat {}", emoji, message_id, chat_id)
+        except Exception as e:
+            logger.error("Failed to set message reaction: {}", e)
     
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -448,14 +491,21 @@ class TelegramChannel(BaseChannel):
                 content_parts.append(f"[{media_type}: download failed]")
         
         content = "\n".join(content_parts) if content_parts else "[empty message]"
-        
+
         logger.debug("Telegram message from {}: {}...", sender_id, content[:50])
-        
+
         str_chat_id = str(chat_id)
-        
+
+        # Set random reaction on user's message
+        await self.set_message_reaction(
+            chat_id=str_chat_id,
+            message_id=message.message_id,
+            emoji=random.choice(self.REACTION_EMOJIS)
+        )
+
         # Start typing indicator before processing
         self._start_typing(str_chat_id)
-        
+
         # Forward to the message bus
         await self._handle_message(
             sender_id=sender_id,
