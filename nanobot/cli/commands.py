@@ -249,6 +249,10 @@ def _make_provider(config: Config):
             api_key=p.api_key if p else "no-key",
             api_base=config.get_api_base(model) or "http://localhost:8000/v1",
             default_model=model,
+            reasoning_effort=p.reasoning_effort if p else None,
+            enable_thinking=p.enable_thinking if p else None,
+            thinking_budget=p.thinking_budget if p else None,
+            presence_penalty=p.presence_penalty if p else None,
         )
 
     from nanobot.providers.registry import find_by_name
