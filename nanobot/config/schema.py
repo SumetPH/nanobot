@@ -225,6 +225,10 @@ class ProviderConfig(Base):
     api_key: str = ""
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
+    reasoning_effort: str | None = None  # Reasoning effort level: "low", "medium", "high"
+    enable_thinking: bool | None = None  # Enable thinking mode for Qwen models
+    thinking_budget: int | None = None  # Token budget for thinking mode (Qwen), default is model default
+    presence_penalty: float | None = None  # Presence penalty (-2.0 to 2.0)
 
 
 class ProvidersConfig(Base):
