@@ -198,6 +198,9 @@ class ChannelManager:
                         continue
                     if not msg.metadata.get("_tool_hint") and not self.config.channels.send_progress:
                         continue
+
+                if msg.metadata.get("_tool_hint"):
+                    msg = self._customize_tool_hint(msg)
                 
                 channel = self.channels.get(msg.channel)
                 if channel:
@@ -231,3 +234,9 @@ class ChannelManager:
     def enabled_channels(self) -> list[str]:
         """Get list of enabled channel names."""
         return list(self.channels.keys())
+
+    def _customize_tool_hint(self, msg: OutboundMessage) -> OutboundMessage:
+        """Customize tool hint message."""
+        original_content = msg.content
+        msg.content = f"🔧 : {msg.content}"
+        return msg
