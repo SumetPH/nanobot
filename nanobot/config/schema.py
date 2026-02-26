@@ -225,6 +225,13 @@ class ProviderConfig(Base):
     api_key: str = ""
     api_base: str | None = None
     extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
+
+class CustomProviderConfig(Base):
+    """custom provider configuration."""
+
+    api_key: str = ""
+    api_base: str | None = None
+    extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
     reasoning_effort: str | None = None  # Reasoning effort level: "low", "medium", "high"
     enable_thinking: bool | None = None  # Enable thinking mode for Qwen models
     thinking_budget: int | None = None  # Token budget for thinking mode (Qwen), default is model default
@@ -234,7 +241,7 @@ class ProviderConfig(Base):
 class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
-    custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
+    custom: CustomProviderConfig = Field(default_factory=CustomProviderConfig)  # Any OpenAI-compatible endpoint
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)
