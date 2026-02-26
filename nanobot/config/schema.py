@@ -267,8 +267,10 @@ class GatewayConfig(Base):
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
-    api_key: str = ""  # Brave Search API key
+    provider: str = "brave"  # "brave" | "tavily"
+    api_key: str = ""  # API key for the selected provider
     max_results: int = 5
+    model: str = ""  # Model override for gemini/grok providers (uses provider default if empty)
 
 
 class WebToolsConfig(Base):
