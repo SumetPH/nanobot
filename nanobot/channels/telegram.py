@@ -15,12 +15,58 @@ from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
 
 
+def convert_markdown_table_to_bullets(text: str) -> str:
+    """Convert Markdown tables to bullet points."""
+    lines = text.split('\n')
+    output_lines = []
+    
+    in_table = False
+    headers = []
+    
+    for line in lines:
+        stripped_line = line.strip()
+        
+        if '|' in stripped_line and len(stripped_line.split('|')) > 2:
+            columns = [col.strip() for col in stripped_line.strip('|').split('|')]
+            
+            is_separator = all(all(c in '- :*' for c in col) and len(col) > 0 for col in columns if col)
+            if is_separator:
+                continue
+            
+            if not in_table:
+                headers = columns
+                in_table = True
+                output_lines.append("") 
+            else:
+                field_lines = []
+                for i, cell in enumerate(columns):
+                    header = headers[i] if i < len(headers) else f"Column {i+1}"
+                    if cell:
+                        field_lines.append(f"**{header}:** {cell}")
+
+                if field_lines:
+                    bullet = "- " + field_lines[0]
+                    for extra in field_lines[1:]:
+                        bullet += "\n  " + extra
+                    output_lines.append(bullet)
+                    output_lines.append("")
+        else:
+            in_table = False
+            headers = []
+            output_lines.append(line)
+            
+    return '\n'.join(output_lines)
+
+
 def _markdown_to_telegram_html(text: str) -> str:
     """
     Convert markdown to Telegram-safe HTML.
     """
     if not text:
         return ""
+        
+    # Pre-process: convert markdown tables to bullet points
+    text = convert_markdown_table_to_bullets(text)
     
     # 1. Extract and protect code blocks (preserve content from other processing)
     code_blocks: list[str] = []
