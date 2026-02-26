@@ -175,20 +175,47 @@ class WebSearchTool(Tool):
         return "\n".join(lines)
 
     async def _search_grok(self, query: str, n: int) -> str:
+        import asyncio
+        
         payload = {
             "model": self.model or self._DEFAULT_MODELS["grok"],
             "input": [{"role": "user", "content": query}],
             "tools": [{"type": "web_search"}],
         }
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                "https://api.x.ai/v1/responses",
-                json=payload,
-                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                timeout=30.0,
-            )
-            r.raise_for_status()
-        data = r.json()
+        
+        # Retry on rate limit (429)
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient() as client:
+                    r = await client.post(
+                        "https://api.x.ai/v1/responses",
+                        json=payload,
+                        headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                        timeout=30.0,
+                    )
+                    if r.status_code == 429:
+                        retry_after = 1.0
+                        try:
+                            data = r.json()
+                            retry_after = float(data.get("retry_after", 1.0))
+                        except Exception:
+                            pass
+                        if attempt < 2:
+                            await asyncio.sleep(retry_after)
+                            continue
+                        return f"Error: Grok API rate limit exceeded. Please try again later."
+                    r.raise_for_status()
+                    data = r.json()
+                    break
+            except httpx.HTTPStatusError as e:
+                if attempt == 2:
+                    return f"Error: Grok API request failed: {e.response.status_code}"
+                await asyncio.sleep(1)
+            except Exception as e:
+                if attempt == 2:
+                    return f"Error: {e}"
+                await asyncio.sleep(1)
+        
         # Extract text from output array (Responses API format)
         ai_text = ""
         for item in data.get("output", []):
