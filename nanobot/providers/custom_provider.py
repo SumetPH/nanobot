@@ -34,10 +34,9 @@ class CustomProvider(LLMProvider):
         }
         if tools:
             kwargs.update(tools=tools, tool_choice="auto")
+        
         # Use provided reasoning_effort or fall back to instance default
         effort = reasoning_effort or self.reasoning_effort
-        if effort:
-            kwargs["reasoning"] = {"effort": effort}
         # Use provided enable_thinking or fall back to instance default
         thinking = enable_thinking if enable_thinking is not None else self.enable_thinking
         if thinking:
@@ -45,13 +44,20 @@ class CustomProvider(LLMProvider):
             extra_body: dict[str, Any] = {"enable_thinking": True}
             if budget is not None:
                 extra_body["thinking_budget"] = budget
+            # Add reasoning effort to extra_body if specified
+            if effort:
+                extra_body["reasoning"] = {"effort": effort}
             kwargs["extra_body"] = extra_body
+        elif effort:
+            # If only reasoning_effort is set (without thinking), still send it via extra_body
+            kwargs["extra_body"] = {"reasoning": {"effort": effort}}
         # Use provided presence_penalty or fall back to instance default
         penalty = presence_penalty if presence_penalty is not None else self.presence_penalty
         if penalty is not None:
             kwargs["presence_penalty"] = penalty
-        
-        logger.debug(f"CustomProvider chat: model={kwargs['model']}, enable_thinking={thinking}, extra_body={kwargs.get('extra_body')}, presence_penalty={penalty}")
+
+        logger.info(f"CustomProvider chat: model={kwargs['model']}, reasoning_effort={effort}, enable_thinking={thinking}, thinking_budget={budget if thinking else None}, presence_penalty={penalty}")
+        logger.debug(f"CustomProvider chat details: extra_body={kwargs.get('extra_body')}")
         
         try:
             return self._parse(await self._client.chat.completions.create(**kwargs))
