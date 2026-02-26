@@ -47,6 +47,7 @@ _SEARCH_ENV_VARS = {
     "brave": "BRAVE_API_KEY",
     "tavily": "TAVILY_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "grok": "XAI_API_KEY",
 }
 
 
@@ -66,6 +67,7 @@ class WebSearchTool(Tool):
 
     _DEFAULT_MODELS = {
         "gemini": "gemini-2.5-flash",
+        "grok": "grok-4-1-fast-reasoning",
     }
 
     def __init__(self, api_key: str | None = None, max_results: int = 5, provider: str = "brave", model: str = ""):
@@ -94,6 +96,8 @@ class WebSearchTool(Tool):
                 return await self._search_tavily(query, n)
             elif self.provider == "gemini":
                 return await self._search_gemini(query, n)
+            elif self.provider == "grok":
+                return await self._search_grok(query, n)
             else:
                 return await self._search_brave(query, n)
         except Exception as e:
@@ -168,6 +172,43 @@ class WebSearchTool(Tool):
             for i, chunk in enumerate(chunks[:n], 1):
                 web = chunk.get("web", {})
                 lines.append(f"{i}. {web.get('title', '')}\n   {web.get('uri', '')}")
+        return "\n".join(lines)
+
+    async def _search_grok(self, query: str, n: int) -> str:
+        payload = {
+            "model": self.model or self._DEFAULT_MODELS["grok"],
+            "input": [{"role": "user", "content": query}],
+            "tools": [{"type": "web_search"}],
+        }
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                "https://api.x.ai/v1/responses",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                timeout=30.0,
+            )
+            r.raise_for_status()
+        data = r.json()
+        # Extract text from output array (Responses API format)
+        ai_text = ""
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for part in item.get("content", []):
+                    if part.get("type") == "output_text":
+                        ai_text = part.get("text", "")
+                        break
+        citations = data.get("citations", [])
+        lines = [f"Results for: {query}\n"]
+        if ai_text:
+            lines.append(ai_text)
+            lines.append("")
+        if citations:
+            lines.append("Sources:")
+            for i, c in enumerate(citations[:n], 1):
+                if isinstance(c, dict):
+                    lines.append(f"{i}. {c.get('title', '')}\n   {c.get('url', '')}")
+                elif isinstance(c, str):
+                    lines.append(f"{i}. {c}")
         return "\n".join(lines)
 
 
