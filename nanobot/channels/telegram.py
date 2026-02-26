@@ -38,14 +38,18 @@ def convert_markdown_table_to_bullets(text: str) -> str:
                 in_table = True
                 output_lines.append("") 
             else:
-                bullet_items = []
+                field_lines = []
                 for i, cell in enumerate(columns):
                     header = headers[i] if i < len(headers) else f"Column {i+1}"
                     if cell:
-                        bullet_items.append(f"**{header}:** {cell}")
-                
-                if bullet_items:
-                    output_lines.append("- " + ", ".join(bullet_items))
+                        field_lines.append(f"**{header}:** {cell}")
+
+                if field_lines:
+                    bullet = "- " + field_lines[0]
+                    for extra in field_lines[1:]:
+                        bullet += "\n  " + extra
+                    output_lines.append(bullet)
+                    output_lines.append("")
         else:
             in_table = False
             headers = []
