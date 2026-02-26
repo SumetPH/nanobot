@@ -46,11 +46,12 @@ def _validate_url(url: str) -> tuple[bool, str]:
 _SEARCH_ENV_VARS = {
     "brave": "BRAVE_API_KEY",
     "tavily": "TAVILY_API_KEY",
+    "gemini": "GEMINI_API_KEY",
 }
 
 
 class WebSearchTool(Tool):
-    """Search the web. Supports Brave and Tavily."""
+    """Search the web. Supports Brave, Tavily, and Gemini grounding."""
 
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
@@ -61,6 +62,10 @@ class WebSearchTool(Tool):
             "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10}
         },
         "required": ["query"]
+    }
+
+    _DEFAULT_MODELS = {
+        "gemini": "gemini-2.5-flash",
     }
 
     def __init__(self, api_key: str | None = None, max_results: int = 5, provider: str = "brave", model: str = ""):
@@ -87,6 +92,8 @@ class WebSearchTool(Tool):
             n = min(max(count or self.max_results, 1), 10)
             if self.provider == "tavily":
                 return await self._search_tavily(query, n)
+            elif self.provider == "gemini":
+                return await self._search_gemini(query, n)
             else:
                 return await self._search_brave(query, n)
         except Exception as e:
@@ -132,6 +139,35 @@ class WebSearchTool(Tool):
             lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
             if content := item.get("content"):
                 lines.append(f"   {content}")
+        return "\n".join(lines)
+
+    async def _search_gemini(self, query: str, n: int) -> str:
+        model = self.model or self._DEFAULT_MODELS["gemini"]
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        payload = {
+            "contents": [{"parts": [{"text": query}]}],
+            "tools": [{"google_search": {}}],
+        }
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, params={"key": self.api_key}, json=payload, timeout=20.0)
+            r.raise_for_status()
+        data = r.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return f"No results for: {query}"
+        candidate = candidates[0]
+        parts = candidate.get("content", {}).get("parts", [])
+        ai_text = " ".join(p.get("text", "") for p in parts).strip()
+        chunks = candidate.get("groundingMetadata", {}).get("groundingChunks", [])
+        lines = [f"Results for: {query}\n"]
+        if ai_text:
+            lines.append(ai_text)
+            lines.append("")
+        if chunks:
+            lines.append("Sources:")
+            for i, chunk in enumerate(chunks[:n], 1):
+                web = chunk.get("web", {})
+                lines.append(f"{i}. {web.get('title', '')}\n   {web.get('uri', '')}")
         return "\n".join(lines)
 
 
