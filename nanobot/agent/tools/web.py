@@ -43,9 +43,17 @@ def _validate_url(url: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+_SEARCH_ENV_VARS = {
+    "brave": "BRAVE_API_KEY",
+    "tavily": "TAVILY_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "grok": "XAI_API_KEY",
+}
+
+
 class WebSearchTool(Tool):
-    """Search the web using Brave Search API."""
-    
+    """Search the web. Supports Brave, Tavily, and Gemini grounding."""
+
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
     parameters = {
@@ -56,47 +64,152 @@ class WebSearchTool(Tool):
         },
         "required": ["query"]
     }
-    
-    def __init__(self, api_key: str | None = None, max_results: int = 5):
+
+    _DEFAULT_MODELS = {
+        "gemini": "gemini-2.5-flash",
+        "grok": "grok-4-1-fast-reasoning",
+    }
+
+    def __init__(self, api_key: str | None = None, max_results: int = 5, provider: str = "brave", model: str = ""):
         self._init_api_key = api_key
         self.max_results = max_results
+        self.provider = provider
+        self.model = model
 
     @property
     def api_key(self) -> str:
         """Resolve API key at call time so env/config changes are picked up."""
-        return self._init_api_key or os.environ.get("BRAVE_API_KEY", "")
+        env_var = _SEARCH_ENV_VARS.get(self.provider, "BRAVE_API_KEY")
+        return self._init_api_key or os.environ.get(env_var, "")
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         if not self.api_key:
+            env_var = _SEARCH_ENV_VARS.get(self.provider, "BRAVE_API_KEY")
             return (
-                "Error: Brave Search API key not configured. "
-                "Set it in ~/.nanobot/config.json under tools.web.search.apiKey "
-                "(or export BRAVE_API_KEY), then restart the gateway."
+                f"Error: {self.provider.title()} Search API key not configured. "
+                f"Set it in ~/.nanobot/config.json under tools.web.search.apiKey "
+                f"(or export {env_var}), then restart the gateway."
             )
-        
         try:
             n = min(max(count or self.max_results, 1), 10)
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    params={"q": query, "count": n},
-                    headers={"Accept": "application/json", "X-Subscription-Token": api_key},
-                    timeout=10.0
-                )
-                r.raise_for_status()
-            
-            results = r.json().get("web", {}).get("results", [])
-            if not results:
-                return f"No results for: {query}"
-            
-            lines = [f"Results for: {query}\n"]
-            for i, item in enumerate(results[:n], 1):
-                lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
-                if desc := item.get("description"):
-                    lines.append(f"   {desc}")
-            return "\n".join(lines)
+            if self.provider == "tavily":
+                return await self._search_tavily(query, n)
+            elif self.provider == "gemini":
+                return await self._search_gemini(query, n)
+            elif self.provider == "grok":
+                return await self._search_grok(query, n)
+            else:
+                return await self._search_brave(query, n)
         except Exception as e:
             return f"Error: {e}"
+
+    async def _search_brave(self, query: str, n: int) -> str:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                params={"q": query, "count": n},
+                headers={"Accept": "application/json", "X-Subscription-Token": self.api_key},
+                timeout=10.0
+            )
+            r.raise_for_status()
+        results = r.json().get("web", {}).get("results", [])
+        if not results:
+            return f"No results for: {query}"
+        lines = [f"Results for: {query}\n"]
+        for i, item in enumerate(results[:n], 1):
+            lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
+            if desc := item.get("description"):
+                lines.append(f"   {desc}")
+        return "\n".join(lines)
+
+    async def _search_tavily(self, query: str, n: int) -> str:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                "https://api.tavily.com/search",
+                json={"query": query, "max_results": n, "include_answer": True},
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                timeout=15.0
+            )
+            r.raise_for_status()
+        data = r.json()
+        results = data.get("results", [])
+        if not results:
+            return f"No results for: {query}"
+        lines = [f"Results for: {query}\n"]
+        if answer := data.get("answer"):
+            lines.append(answer)
+            lines.append("")
+        for i, item in enumerate(results[:n], 1):
+            lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
+            if content := item.get("content"):
+                lines.append(f"   {content}")
+        return "\n".join(lines)
+
+    async def _search_gemini(self, query: str, n: int) -> str:
+        model = self.model or self._DEFAULT_MODELS["gemini"]
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        payload = {
+            "contents": [{"parts": [{"text": query}]}],
+            "tools": [{"google_search": {}}],
+        }
+        async with httpx.AsyncClient() as client:
+            r = await client.post(url, params={"key": self.api_key}, json=payload, timeout=20.0)
+            r.raise_for_status()
+        data = r.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return f"No results for: {query}"
+        candidate = candidates[0]
+        parts = candidate.get("content", {}).get("parts", [])
+        ai_text = " ".join(p.get("text", "") for p in parts).strip()
+        chunks = candidate.get("groundingMetadata", {}).get("groundingChunks", [])
+        lines = [f"Results for: {query}\n"]
+        if ai_text:
+            lines.append(ai_text)
+            lines.append("")
+        if chunks:
+            lines.append("Sources:")
+            for i, chunk in enumerate(chunks[:n], 1):
+                web = chunk.get("web", {})
+                lines.append(f"{i}. {web.get('title', '')}\n   {web.get('uri', '')}")
+        return "\n".join(lines)
+
+    async def _search_grok(self, query: str, n: int) -> str:
+        payload = {
+            "model": self.model or self._DEFAULT_MODELS["grok"],
+            "input": [{"role": "user", "content": query}],
+            "tools": [{"type": "web_search"}],
+        }
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                "https://api.x.ai/v1/responses",
+                json=payload,
+                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+                timeout=30.0,
+            )
+            r.raise_for_status()
+        data = r.json()
+        # Extract text from output array (Responses API format)
+        ai_text = ""
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for part in item.get("content", []):
+                    if part.get("type") == "output_text":
+                        ai_text = part.get("text", "")
+                        break
+        citations = data.get("citations", [])
+        lines = [f"Results for: {query}\n"]
+        if ai_text:
+            lines.append(ai_text)
+            lines.append("")
+        if citations:
+            lines.append("Sources:")
+            for i, c in enumerate(citations[:n], 1):
+                if isinstance(c, dict):
+                    lines.append(f"{i}. {c.get('title', '')}\n   {c.get('url', '')}")
+                elif isinstance(c, str):
+                    lines.append(f"{i}. {c}")
+        return "\n".join(lines)
 
 
 class WebFetchTool(Tool):

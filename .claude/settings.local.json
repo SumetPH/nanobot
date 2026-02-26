@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.x.ai)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}
