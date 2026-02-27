@@ -417,10 +417,15 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
+        _last_progress_content: list[str] = []
+
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
+            if not tool_hint:
+                _last_progress_content.clear()
+                _last_progress_content.append(content)
             await self.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
@@ -436,6 +441,10 @@ class AgentLoop:
         self.sessions.save(session)
 
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+            return None
+
+        send_progress = (self.channels_config.send_progress if self.channels_config else True)
+        if send_progress and _last_progress_content and final_content == _last_progress_content[-1]:
             return None
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
